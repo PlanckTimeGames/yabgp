@@ -5,25 +5,18 @@ using System.Linq;
 using UnityEngine;
 using UnityEngine.Assertions;
 
-public interface IChessPositionSelector
-{
-    void PositionSelected(ChessBoardPosition position);
-}
-
 public class ChessBoardPosition : SquarePosition
 {
     private bool mSelected = false;
-    private IChessPositionSelector mPositionSelector;
 
     public int rowIdx { get; private set; }
     public int colIdx { get; private set; }
 
-    public void Init(int rowIdx_, int colIdx_, Vector3 vec3Position, IChessPositionSelector positionSelector)
+    public void Init(int rowIdx_, int colIdx_, Vector3 vec3Position)
     {
         rowIdx = rowIdx_;
         colIdx = colIdx_;
         vec3 = vec3Position;
-        mPositionSelector = positionSelector;
     }
 
     // Start is called before the first frame update
@@ -48,7 +41,7 @@ public class ChessBoardPosition : SquarePosition
     
     private void OnMouseDown()
     {
-        mPositionSelector.PositionSelected(this);
+        ChessGame.sPositionSelectedEvent.Invoke(this);
     }
 
     public void Select()
@@ -62,6 +55,8 @@ public class ChessBoardPosition : SquarePosition
         mSelected = false;
         Highlight(false);
     }
+
+    public bool IsSelected { get { return mSelected; } }
 
     public bool userSelectionEnabled { get; set; }
 

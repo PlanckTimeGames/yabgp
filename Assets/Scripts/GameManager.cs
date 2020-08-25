@@ -25,7 +25,7 @@ namespace Interfaces
         HashSet<Piece> ownedPieces { get; }
         void AddPiece(Piece piece);
         void RemovePiece(Piece piece);
-        void StartTurn(ITurn turn, IEndTurnCallback endTurnCallback);
+        void StartTurn(ITurn turn, EndTurnCallback endTurnCallback);
     }
 
     public interface ITeam
@@ -39,10 +39,7 @@ namespace Interfaces
         ITurn Clone();
     }
 
-    public interface IEndTurnCallback
-    {
-        void TurnEnded(ITurn endedTurn);
-    }
+    public delegate void EndTurnCallback(ITurn endedTurn);
 }
 
 

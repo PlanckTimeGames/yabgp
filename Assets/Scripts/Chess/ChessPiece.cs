@@ -39,6 +39,7 @@ public abstract class ChessPiece : Piece
 
     private bool mIsMoving;
     private VertexPath mAnimationPath;
+    private MoveCompletionCallback mMoveCompletionCallback;
     private float mMoveSpeed = 20.0f;
     private float mMoveDistance = 0.0f;
     public virtual void Init(ChessBoardPosition position, IPlayer player, Vector3 forwardDirection, IChessBoardInfo boardInfo)
@@ -93,17 +94,18 @@ public abstract class ChessPiece : Piece
 
     public List<ChessBoardPosition> validPositions { get; protected set; }
 
-    public void MovePiece(ChessBoardPosition newPos, VertexPath animationPath)
+    public void MovePiece(ChessBoardPosition newPos, VertexPath animationPath, MoveCompletionCallback moveCompletionCallback)
     {
         mIsMoving = true;
         mAnimationPath = animationPath;
+        mMoveCompletionCallback = moveCompletionCallback;
         SetPosition(newPos);
     }
 
     private void NotifyPlayerAfterMove()
     {
-        var player = ownerPlayer as ChessPlayer;
-        player.PieceMoved(this);
+        mMoveCompletionCallback();
+        mMoveCompletionCallback = null;
     }
 }
 

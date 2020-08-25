@@ -7,6 +7,7 @@ using System;
 using System.Linq;
 using PathCreation;
 using System.Threading.Tasks;
+using UnityEngine.Events;
 
 public class ChessTeam : ITeam
 {
@@ -14,9 +15,10 @@ public class ChessTeam : ITeam
     public List<IPlayer> players { get; set; }
 }
 
-public class ChessGame : MonoBehaviour, IGame, IChessBoardInfo, IChessPositionSelector, IEndTurnCallback
+public class ChessGame : MonoBehaviour, IGame, IChessBoardInfo, IChessBoardCommands
 {
-    
+    public static UnityEvent<ChessBoardPosition> sPositionSelectedEvent;
+
     public GameObject chessPositionPrefab;
     public ChessPieceFactory chessPieceFactory;
     public CameraRotation cameraRotation;
@@ -42,17 +44,16 @@ public class ChessGame : MonoBehaviour, IGame, IChessBoardInfo, IChessPositionSe
         { (-3.731f, 3.731f, ChessPiece.PieceType.Rook, ChessPlayer.PlayerColor.Black), (-2.665f, 3.731f, ChessPiece.PieceType.Knight, ChessPlayer.PlayerColor.Black), (-1.599f, 3.731f, ChessPiece.PieceType.Bishop, ChessPlayer.PlayerColor.Black), (-0.533f, 3.731f, ChessPiece.PieceType.Queen, ChessPlayer.PlayerColor.Black), (0.533f, 3.731f, ChessPiece.PieceType.King, ChessPlayer.PlayerColor.Black), (1.599f, 3.731f, ChessPiece.PieceType.Bishop, ChessPlayer.PlayerColor.Black), (2.665f, 3.731f, ChessPiece.PieceType.Knight, ChessPlayer.PlayerColor.Black), (3.731f, 3.731f, ChessPiece.PieceType.Rook, ChessPlayer.PlayerColor.Black) }
     };
     private ChessBoardPosition[,] mChessPositions = new ChessBoardPosition[8, 8];
-    private ChessBoardPosition mSelectedPosition;
-    private List<ChessBoardPosition> mSelectedValidPositions = new List<ChessBoardPosition>();
     private ChessTeam mWhiteTeam, mBlackTeam;
     private Material mBoardMat;
     private ITurn[] mTurnSequence;
     private int mCurrentTurnIdx;
-    private ChessTurn mCurrentTurn;
 
     public void Awake()
     {
         TurnHistory = new List<ITurn>();
+        if (sPositionSelectedEvent == null)
+            sPositionSelectedEvent = new UnityEvent<ChessBoardPosition>();
     }
 
     public Material GetBoardMaterial()
@@ -73,7 +74,7 @@ public class ChessGame : MonoBehaviour, IGame, IChessBoardInfo, IChessPositionSe
             {
                 var posObject = Instantiate(chessPositionPrefab);
                 ChessBoardPosition pos = posObject.GetComponent<ChessBoardPosition>();
-                pos.Init(row, col, new Vector3(kPositions[row, col].Item1, 0, kPositions[row, col].Item2), this);
+                pos.Init(row, col, new Vector3(kPositions[row, col].Item1, 0, kPositions[row, col].Item2));
                 mChessPositions[row, col] = pos;
             }
         }
@@ -100,12 +101,12 @@ public class ChessGame : MonoBehaviour, IGame, IChessBoardInfo, IChessPositionSe
     {
         mWhiteTeam = new ChessTeam();
         var whitePlayers = mWhiteTeam.players;
-        whitePlayers.Add(new HumanChessPlayer(ChessPlayer.PlayerColor.White, mWhiteTeam, cameraRotation));
+        whitePlayers.Add(new HumanChessPlayer(ChessPlayer.PlayerColor.White, mWhiteTeam, this, cameraRotation));
         mWhiteTeam.players = whitePlayers;
 
         mBlackTeam = new ChessTeam();
         var blackPlayers = mBlackTeam.players;
-        blackPlayers.Add(new HumanChessPlayer(ChessPlayer.PlayerColor.Black, mBlackTeam, cameraRotation));
+        blackPlayers.Add(new HumanChessPlayer(ChessPlayer.PlayerColor.Black, mBlackTeam, this, cameraRotation));
         mBlackTeam.players = blackPlayers;
 
         return new ITeam[] { mWhiteTeam, mBlackTeam };
@@ -162,8 +163,7 @@ public class ChessGame : MonoBehaviour, IGame, IChessBoardInfo, IChessPositionSe
     {
         mCurrentTurnIdx = 0;
         var turn = TurnSequence[mCurrentTurnIdx].Clone();
-        mCurrentTurn = turn as ChessTurn;
-        turn.player.StartTurn(turn, this);
+        turn.player.StartTurn(turn, TurnEnded);
     }
 
     public ChessBoardPosition GetRelativeBoardPosition(ChessBoardPosition startingPos, int xOffset, int yOffset)
@@ -274,86 +274,30 @@ public class ChessGame : MonoBehaviour, IGame, IChessBoardInfo, IChessPositionSe
         return validPositions;
     }
 
-    public void PositionSelected(ChessBoardPosition position)
+    public void DeselectAllPositions()
     {
-        if (position == null)
-            return;
-
-        bool handled = false;
-        if (mSelectedPosition != null)
+        foreach (var pos in mChessPositions)
         {
-            var selectedPiece = mSelectedPosition.occupantPieces.First() as ChessPiece;
-            // Position is either empty of has a piece of different team.
-            if (position.occupantPieces.Count() == 0
-                || position.occupantPieces.First().ownerPlayer.team != selectedPiece.ownerPlayer.team)
-            {
-                // Is this one of the selected positions?
-                bool isSelectedValidPos = false;
-                foreach (var pos in mSelectedValidPositions)
-                {
-                    if (pos == position)
-                    {
-                        isSelectedValidPos = true;
-                        break;
-                    }
-                }
-
-                DeselectAllPositions();
-                if (isSelectedValidPos)
-                    MovePiece(selectedPiece, position);
-                handled = true;
-            }
-        }
-        
-        if (!handled && position.occupantPieces.Count() > 0
-            && position.occupantPieces.First().ownerPlayer == mCurrentTurn.player)
-        {
-            DeselectAllPositions();
-
-            mSelectedPosition = position;
-            position.Select();
-            var piece = position.occupantPieces.First() as ChessPiece;
-            var validPositions = piece.CalculateValidMoves();
-
-            foreach (var pos in validPositions)
-            {
-                mSelectedValidPositions.Add(pos);
-                pos.Select();
-            }
-        }
-    }
-
-    private void DeselectAllPositions()
-    {
-        if (mSelectedPosition != null)
-        {
-            mSelectedPosition.Deselect();
-            mSelectedPosition = null;
-        }
-        if (mSelectedValidPositions.Count() > 0)
-        {
-            foreach (var pos in mSelectedValidPositions)
+            if (pos.IsSelected)
                 pos.Deselect();
-            mSelectedValidPositions.Clear();
         }
     }
 
-    private void MovePiece(ChessPiece pieceToMove, ChessBoardPosition toPosition)
+    public ChessPiece MovePiece(ChessPiece pieceToMove, ChessBoardPosition toPosition, MoveCompletionCallback callback)
     {
-        mCurrentTurn.pieceMoved = pieceToMove;
-        mCurrentTurn.startPosition = pieceToMove.GetPosition() as ChessBoardPosition;
-        mCurrentTurn.endPosition = toPosition;
-
+        ChessPiece pieceCaptured = null;
         if (toPosition.occupantPieces.Count() > 0)
         {
             var piece = toPosition.occupantPieces.First();
             piece.Remove();
-            mCurrentTurn.pieceCaptured = piece as ChessPiece;
+            pieceCaptured = piece as ChessPiece;
+
+            // TODO: Check for en passant capture.
         }
 
-        var startLoc = mCurrentTurn.startPosition.vec3;
-        var endLoc = mCurrentTurn.endPosition.vec3;
-        BezierPath piecePath = new BezierPath(new Vector3[] { pieceToMove.GetPosition().vec3, toPosition.vec3 });
+        var startLoc = pieceToMove.GetPosition().vec3;
+        var endLoc = toPosition.vec3;
+        BezierPath piecePath = new BezierPath(new Vector3[] { startLoc, endLoc });
         piecePath.ControlPointMode = BezierPath.ControlMode.Free;
         var control1 = startLoc;
         control1.y += 2.0f;
@@ -364,7 +308,8 @@ public class ChessGame : MonoBehaviour, IGame, IChessBoardInfo, IChessPositionSe
         
         var pieceVPath = new VertexPath(piecePath, transform);
 
-        pieceToMove.MovePiece(mCurrentTurn.endPosition, pieceVPath);
+        pieceToMove.MovePiece(toPosition, pieceVPath, callback);
+        return pieceCaptured;
     }
 
     public void TurnEnded(ITurn endedTurn)
@@ -380,7 +325,6 @@ public class ChessGame : MonoBehaviour, IGame, IChessBoardInfo, IChessPositionSe
             mCurrentTurnIdx = 0;
 
         var turn = TurnSequence[mCurrentTurnIdx].Clone();
-        mCurrentTurn = turn as ChessTurn;
-        turn.player.StartTurn(turn, this);
+        turn.player.StartTurn(turn, TurnEnded);
     }    
 }

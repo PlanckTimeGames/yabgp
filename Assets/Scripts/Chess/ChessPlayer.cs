@@ -4,6 +4,14 @@ using UnityEngine;
 using Interfaces;
 using System.Runtime.CompilerServices;
 using PathCreation;
+using System.Linq;
+
+public delegate void MoveCompletionCallback();
+public interface IChessBoardCommands
+{
+    ChessPiece MovePiece(ChessPiece pieceToMove, ChessBoardPosition toPosition, MoveCompletionCallback callback);
+    void DeselectAllPositions();
+}
 
 public class ChessPlayer : IPlayer
 {
@@ -14,12 +22,14 @@ public class ChessPlayer : IPlayer
     }
 
     protected ChessTurn mTurn;
-    private IEndTurnCallback mEndTurnCallback;
+    protected IChessBoardCommands mChessBoardCommands;
+    private EndTurnCallback mEndTurnCallback;
 
-    public ChessPlayer(PlayerColor playerColor_, ChessTeam team_)
+    public ChessPlayer(PlayerColor playerColor_, ChessTeam team_, IChessBoardCommands chessBoardCommands)
     {
         playerColor = playerColor_;
         team = team_;
+        mChessBoardCommands = chessBoardCommands;
         ownedPieces = new HashSet<Piece>();
 
         switch (playerColor)
@@ -58,27 +68,32 @@ public class ChessPlayer : IPlayer
         if (piece != null)
             ownedPieces.Remove(piece);
     }
-    public virtual void PieceMoved(ChessPiece pieceMoved)
-    {
-        mEndTurnCallback.TurnEnded(mTurn);
-    }
 
-    public virtual void StartTurn(ITurn turn, IEndTurnCallback endTurnCallback)
+    public virtual void StartTurn(ITurn turn, EndTurnCallback endTurnCallback)
     {
         mTurn = turn as ChessTurn;
         mEndTurnCallback = endTurnCallback;
     }
+
+    protected virtual void EndTurn()
+    {
+        mEndTurnCallback(mTurn);
+        mEndTurnCallback = null;
+        mTurn = null;
+    }
+
 }
 
 public class HumanChessPlayer : ChessPlayer 
 {
     private ICameraController mCameraController;
-    public HumanChessPlayer(PlayerColor playerColor_, ChessTeam team_, ICameraController cameraController)
-        : base(playerColor_, team_)
+    private List<ChessBoardPosition> mValidMoves;
+    public HumanChessPlayer(PlayerColor playerColor_, ChessTeam team_, IChessBoardCommands chessBoardCommands, ICameraController cameraController)
+        : base(playerColor_, team_, chessBoardCommands)
     {
         mCameraController = cameraController;
     }
-    public override void StartTurn(ITurn turn, IEndTurnCallback endTurnCallback)
+    public override void StartTurn(ITurn turn, EndTurnCallback endTurnCallback)
     {
         base.StartTurn(turn, endTurnCallback);
 
@@ -111,18 +126,60 @@ public class HumanChessPlayer : ChessPlayer
             var position = piece.GetPosition() as ChessBoardPosition;
             position.userSelectionEnabled = true;
         }
+
+        ChessGame.sPositionSelectedEvent.AddListener(OnPositionSelected);
     }
 
-    public override void PieceMoved(ChessPiece pieceMoved)
+    private void OnPositionSelected(ChessBoardPosition position)
     {
-        foreach (var piece in ownedPieces)
+        bool handled = false;
+        if (position.occupantPieces.Count > 0)
         {
-            var position = piece.GetPosition() as ChessBoardPosition;
-            position.userSelectionEnabled = false;
+            var piece = position.occupantPieces.First() as ChessPiece;
+            if (piece.ownerPlayer == this)
+            {
+                mChessBoardCommands.DeselectAllPositions();
+
+                position.Select();
+                mTurn.startPosition = position;
+                mTurn.pieceMoved = piece;
+                mValidMoves = piece.CalculateValidMoves();
+
+                foreach (var pos in mValidMoves)
+                {
+                    pos.Select();
+                }
+                handled = true;
+            }
         }
-        // In addition, disable selection from move's fromPosition as well.
-        mTurn.startPosition.userSelectionEnabled = false;
-        base.PieceMoved(pieceMoved);
+
+        if (!handled)
+        {
+            mChessBoardCommands.DeselectAllPositions();
+            if (mValidMoves != null && mValidMoves.Contains(position))
+            {
+                mTurn.endPosition = position;
+                
+                // ---- START CLEANUP ----
+                // Remove listener for position selections.
+                ChessGame.sPositionSelectedEvent.RemoveListener(OnPositionSelected);
+                // Disable position selection by user.
+                foreach (var piece in ownedPieces)
+                {
+                    var piecePosition = piece.GetPosition() as ChessBoardPosition;
+                    piecePosition.userSelectionEnabled = false;
+                }
+                // In addition, disable selection from move's fromPosition as well.
+                mTurn.startPosition.userSelectionEnabled = false;
+                // Clear turn-related variables.
+                mValidMoves = null;
+                // ---- END CLEANUP ----
+
+                // Actually move the piece.
+                mTurn.pieceCaptured = mChessBoardCommands.MovePiece(mTurn.pieceMoved, position, EndTurn);
+            }
+        }
     }
+
 }
 
