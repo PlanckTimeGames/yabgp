@@ -12,7 +12,8 @@ public class PawnPiece : ChessPiece
         mForwardMove = new ChessMoveInfo((int)forwardDirection.x, (int)forwardDirection.z, false);
     }
 
-    public override List<ChessBoardPosition> CalculateValidMoves()
+    public override PieceType Type { get { return PieceType.Pawn; } }
+    public override List<ChessTurn> CalculateValidMoves(ChessTurn turn, bool considerChecks)
     {
         var curPos = GetPosition() as ChessBoardPosition;
         List<ChessMoveInfo> possibleMoves = new List<ChessMoveInfo>()
@@ -24,7 +25,7 @@ public class PawnPiece : ChessPiece
         possibleMoves.AddRange(CalcTakingMoves());
         possibleMoves.AddRange(CalcEnPassantMoves());
 
-        return (validPositions = boardInfo.GetValidMoves(this, curPos, possibleMoves));
+        return boardInfo.GetValidMoves(turn, possibleMoves, considerChecks);
     }
 
     private ChessMoveInfo[] CalcTakingMoves()

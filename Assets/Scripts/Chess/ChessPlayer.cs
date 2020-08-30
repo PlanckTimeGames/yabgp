@@ -31,6 +31,7 @@ public class ChessPlayer : IPlayer
         team = team_;
         mChessBoardCommands = chessBoardCommands;
         ownedPieces = new HashSet<Piece>();
+        IsInCheck = false;
 
         switch (playerColor)
         {
@@ -57,6 +58,7 @@ public class ChessPlayer : IPlayer
     public Vector3 cameraPosition { get; set; }
     public ITeam team { get; set; }
     public Vector3 forwardDirection { get; private set; }
+    public bool IsInCheck { get; set; }
     public HashSet<Piece> ownedPieces { get; private set; }
     public void AddPiece(Piece piece)
     {
@@ -87,7 +89,7 @@ public class ChessPlayer : IPlayer
 public class HumanChessPlayer : ChessPlayer 
 {
     private ICameraController mCameraController;
-    private List<ChessBoardPosition> mValidMoves;
+    private List<ChessTurn> mValidMoves;
     public HumanChessPlayer(PlayerColor playerColor_, ChessTeam team_, IChessBoardCommands chessBoardCommands, ICameraController cameraController)
         : base(playerColor_, team_, chessBoardCommands)
     {
@@ -143,22 +145,23 @@ public class HumanChessPlayer : ChessPlayer
                 position.Select();
                 mTurn.startPosition = position;
                 mTurn.pieceMoved = piece;
-                mValidMoves = piece.CalculateValidMoves();
+                mValidMoves = piece.CalculateValidMoves(mTurn, true);
 
-                foreach (var pos in mValidMoves)
+                foreach (var move in mValidMoves)
                 {
-                    pos.Select();
+                    move.endPosition.Select();
                 }
                 handled = true;
             }
         }
 
-        if (!handled)
+        if (!handled && mValidMoves != null)
         {
             mChessBoardCommands.DeselectAllPositions();
-            if (mValidMoves != null && mValidMoves.Contains(position))
+            var validMove = FindInValidMoves(position);
+            if (validMove != null)
             {
-                mTurn.endPosition = position;
+                mTurn = validMove;
                 
                 // ---- START CLEANUP ----
                 // Remove listener for position selections.
@@ -179,6 +182,16 @@ public class HumanChessPlayer : ChessPlayer
                 mTurn.pieceCaptured = mChessBoardCommands.MovePiece(mTurn.pieceMoved, position, EndTurn);
             }
         }
+    }
+
+    private ChessTurn FindInValidMoves(ChessBoardPosition position)
+    {
+        foreach (var move in mValidMoves)
+        {
+            if (move.endPosition == position)
+                return move;
+        }
+        return null;
     }
 
 }

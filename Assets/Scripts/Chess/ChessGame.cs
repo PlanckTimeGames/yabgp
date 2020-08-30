@@ -166,6 +166,26 @@ public class ChessGame : MonoBehaviour, IGame, IChessBoardInfo, IChessBoardComma
         turn.player.StartTurn(turn, TurnEnded);
     }
 
+    public void TurnEnded(ITurn endedTurn)
+    {
+        TurnHistory.Add(endedTurn);
+        Invoke("StartNextTurn", 0.01f);
+    }
+
+    public void StartNextTurn()
+    {
+        mCurrentTurnIdx++;
+        if (mCurrentTurnIdx >= TurnSequence.Length)
+            mCurrentTurnIdx = 0;
+
+        var turn = TurnSequence[mCurrentTurnIdx].Clone();
+        var player = turn.player as ChessPlayer;
+        player.IsInCheck = IsPlayerInCheck(player);
+        if (player.IsInCheck)
+            Debug.Log("In Check!!");
+        player.StartTurn(turn, TurnEnded);
+    }
+
     public ChessBoardPosition GetRelativeBoardPosition(ChessBoardPosition startingPos, int xOffset, int yOffset)
     {
         int rowIdx = startingPos.rowIdx + yOffset;
@@ -174,104 +194,6 @@ public class ChessGame : MonoBehaviour, IGame, IChessBoardInfo, IChessBoardComma
             return null;
         else
             return GetChessPositions()[rowIdx, colIdx];
-    }
-
-    public List<ChessBoardPosition> GetValidMoves(ChessPiece piece, ChessBoardPosition startingPos, List<ChessMoveInfo> possibleMoves)
-    {
-        List<ChessBoardPosition> validPositions;
-        var ownTeam = piece.ownerPlayer.team;
-        if (piece.GetType() == typeof(PawnPiece))
-        {
-            return GetValidMovesForPawn(piece, startingPos, possibleMoves);
-        }
-        else
-        {
-            validPositions = new List<ChessBoardPosition>();
-            foreach (var move in possibleMoves)
-            {
-                var pos = startingPos;
-                do
-                {
-                    var endingPos = GetRelativeBoardPosition(pos, move.xOffset, move.yOffset);
-                    if (endingPos == null)
-                    {
-                        break; // We went off the board.
-                    }
-                    else if (endingPos.occupantPieces.Count > 0)
-                    {
-                        if (endingPos.occupantPieces.First().ownerPlayer.team != ownTeam)
-                            validPositions.Add(endingPos);
-                        break; // Don't iterate eny further because a piece is stopping us.
-                    }
-                    else
-                    {
-                        validPositions.Add(endingPos); // Empty position.
-                        pos = endingPos;
-                    }
-                } while (move.repeating);
-            }
-        }
-
-        // TODO: Check for checking positions.
-
-        return validPositions;
-    }
-
-    private List<ChessBoardPosition> GetValidMovesForPawn(ChessPiece pawnPiece, ChessBoardPosition startingPos, List<ChessMoveInfo> possibleMoves)
-    {
-        // For pawn, the possible moves array needs to be hardcoded. Here are details of each index.
-        // Index 0: Single forward move.
-        // Index 1: Double forward move.
-        // Index 2,3: Diagonal taking moves.
-        // Index 4,5: En passant moves corresponding to the 2 and 3 taking moves.
-
-        var validPositions = new List<ChessBoardPosition>();
-        var ownTeam = pawnPiece.ownerPlayer.team;
-
-        // Index 0: Single forward move.
-        var position = GetRelativeBoardPosition(startingPos, possibleMoves[0].xOffset, possibleMoves[0].yOffset);
-        if (position != null && position.occupantPieces.Count == 0)
-        {
-            validPositions.Add(position); // Empty position.
-        }
-
-        // Index 1: Double forward move.
-        position = GetRelativeBoardPosition(startingPos, possibleMoves[1].xOffset, possibleMoves[1].yOffset);
-        // TODO: This needs move history to be implemented.
-
-        // Index 2,3: Diagonal taking moves.
-        for (var i = 2; i <= 3; ++i)
-        {
-            var move = possibleMoves[i];
-            position = GetRelativeBoardPosition(startingPos, move.xOffset, move.yOffset);
-            
-            if (position != null
-                && position.occupantPieces.Count > 0
-                && position.occupantPieces.First().ownerPlayer.team != ownTeam)
-            {
-                validPositions.Add(position);
-            }
-        }
-
-        // Index 4,5: En passant moves corresponding to the 2 and 3 taking moves.
-        for (var i = 4; i <= 5; ++i)
-        {
-            var move = possibleMoves[i];
-            position = GetRelativeBoardPosition(startingPos, move.xOffset, move.yOffset);
-
-            if (position != null
-                && position.occupantPieces.Count > 0
-                && position.occupantPieces.First().ownerPlayer.team != ownTeam)
-            {
-                // TODO: Check for opposing piece move history.
-                //var correspondingTakingMove = possibleMoves[i - 2];
-                //var positionToAdd = GetRelativeBoardPosition(startingPos, correspondingTakingMove.xOffset, correspondingTakingMove.yOffset);
-                //if (positionToAdd != null)
-                //    validPositions.Add(positionToAdd);
-            }
-        }
-
-        return validPositions;
     }
 
     public void DeselectAllPositions()
@@ -312,19 +234,243 @@ public class ChessGame : MonoBehaviour, IGame, IChessBoardInfo, IChessBoardComma
         return pieceCaptured;
     }
 
-    public void TurnEnded(ITurn endedTurn)
+  
+    private ChessTurn FindFirstMoveOfPiece(ChessPiece piece)
     {
-        TurnHistory.Add(endedTurn);
-        Invoke("StartNextTurn", 0.01f);
+        bool checkSecondaryPiece = (piece.Type == ChessPiece.PieceType.Rook); // Rooks can move as secondary piece during castling.
+        foreach (ChessTurn turn in TurnHistory)
+        {
+            if (turn.pieceMoved == piece)
+                return turn;
+            else if (checkSecondaryPiece && turn.secondaryPieceMove.pieceMoved == piece)
+                return turn;
+        }
+        return null;
     }
 
-    public void StartNextTurn()
+    private List<ChessTurn> FindAllMovesOfPiece(ChessPiece piece)
     {
-        mCurrentTurnIdx++;
-        if (mCurrentTurnIdx >= TurnSequence.Length)
-            mCurrentTurnIdx = 0;
+        List<ChessTurn> turns = new List<ChessTurn>();
+        bool checkSecondaryPiece = (piece.Type == ChessPiece.PieceType.Rook); // Rooks can move as secondary piece during castling.
+        foreach (ChessTurn turn in TurnHistory)
+        {
+            if (turn.pieceMoved == piece)
+                turns.Add(turn);
+            else if (checkSecondaryPiece && turn.secondaryPieceMove.pieceMoved == piece)
+                turns.Add(turn);
+        }
+        return turns;
+    }
 
-        var turn = TurnSequence[mCurrentTurnIdx].Clone();
-        turn.player.StartTurn(turn, TurnEnded);
-    }    
+    public List<ChessTurn> GetValidMoves(ChessTurn turn, List<ChessMoveInfo> possibleMoves, bool considerChecks)
+    {
+        List<ChessTurn> validPositions;
+        var piece = turn.pieceMoved;
+        var startingPos = turn.startPosition;
+        var ownTeam = piece.ownerPlayer.team;
+        if (piece.Type == ChessPiece.PieceType.Pawn)
+        {
+            validPositions = GetValidMovesForPawn(turn, possibleMoves);
+        }
+        else
+        {
+            validPositions = new List<ChessTurn>();
+            foreach (var move in possibleMoves)
+            {
+                var pos = startingPos;
+                do
+                {
+                    var endingPos = GetRelativeBoardPosition(pos, move.xOffset, move.yOffset);
+                    if (endingPos == null)
+                    {
+                        break; // We went off the board.
+                    }
+                    else if (endingPos.occupantPieces.Count > 0)
+                    {
+                        ChessPiece pieceToCapture = endingPos.occupantPieces.First() as ChessPiece;
+                        if (pieceToCapture.ownerPlayer.team != ownTeam)
+                        {
+                            // Capturing move.
+                            var turnCopy = turn.Clone() as ChessTurn;
+                            turnCopy.endPosition = endingPos;
+                            turnCopy.specialFlag = ChessTurn.SpecialFlag.kNormalTurn;
+                            turnCopy.pieceCaptured = pieceToCapture;
+                            validPositions.Add(turnCopy);
+                        }
+                        break; // Don't iterate eny further because a piece is stopping us.
+                    }
+                    else
+                    {
+                        // Empty position.
+                        var turnCopy = turn.Clone() as ChessTurn;
+                        turnCopy.endPosition = endingPos;
+                        turnCopy.specialFlag = ChessTurn.SpecialFlag.kNormalTurn;
+                        validPositions.Add(turnCopy);
+                        pos = endingPos;
+                    }
+                } while (move.repeating);
+            }
+
+            if (piece.Type == ChessPiece.PieceType.King)
+            {
+                // TODO: Check for castling moves.
+            }
+        }
+
+        if (considerChecks)
+        {
+            foreach (var turnToCheck in validPositions.Reverse<ChessTurn>())
+            {
+                if (IsPlayerInCheckAfterHypotheticalTurn(turnToCheck.chessPlayer, turnToCheck))
+                    validPositions.Remove(turnToCheck);
+            }
+        }
+
+        return validPositions;
+    }
+
+    private List<ChessTurn> GetValidMovesForPawn(ChessTurn turn, List<ChessMoveInfo> possibleMoves)
+    {
+        // For pawn, the possible moves array needs to be hardcoded. Here are details of each index.
+        // Index 0: Single forward move.
+        // Index 1: Double forward move.
+        // Index 2,3: Diagonal taking moves.
+        // Index 4,5: En passant moves corresponding to the 2 and 3 taking moves.
+
+        var validTurns = new List<ChessTurn>();
+        var pawnPiece = turn.pieceMoved;
+        var startingPos = turn.startPosition;
+        var ownTeam = pawnPiece.ownerPlayer.team;
+
+        // Index 0: Single forward move to an empty position.
+        var position = GetRelativeBoardPosition(startingPos, possibleMoves[0].xOffset, possibleMoves[0].yOffset);
+        if (position != null && position.occupantPieces.Count == 0)
+        {
+            var turnCopy = turn.Clone() as ChessTurn;
+            turnCopy.endPosition = position;
+            turnCopy.specialFlag = ChessTurn.SpecialFlag.kNormalTurn;
+            validTurns.Add(turnCopy);
+
+            // Index 1: Double forward move to an empty position. Only enabled on pawn's first move.
+            var doubleForwardPos = GetRelativeBoardPosition(startingPos, possibleMoves[1].xOffset, possibleMoves[1].yOffset);
+            if (doubleForwardPos != null && doubleForwardPos.occupantPieces.Count == 0
+                && FindFirstMoveOfPiece(pawnPiece) == null)
+            {
+                var turnCopy2 = turn.Clone() as ChessTurn;
+                turnCopy2.endPosition = doubleForwardPos;
+                turnCopy2.specialFlag = ChessTurn.SpecialFlag.kPawnDoubleMove;
+                validTurns.Add(turnCopy2);
+            }
+        }
+
+        // Index 2,3: Diagonal taking moves.
+        for (var i = 2; i <= 3; ++i)
+        {
+            var move = possibleMoves[i];
+            position = GetRelativeBoardPosition(startingPos, move.xOffset, move.yOffset);
+
+            if (position == null)
+                continue;
+
+            if (position.occupantPieces.Count > 0
+                && position.occupantPieces.First().ownerPlayer.team != ownTeam)
+            {
+                var turnCopy = turn.Clone() as ChessTurn;
+                turnCopy.pieceCaptured = position.occupantPieces.First() as ChessPiece;
+                turnCopy.endPosition = position;
+                turnCopy.specialFlag = ChessTurn.SpecialFlag.kNormalTurn;
+                validTurns.Add(turnCopy);
+                continue; // No need to check for en passant now.
+            }
+
+
+            // Index 4,5: En passant moves corresponding to the 2 and 3 taking moves.
+            var enPassantMove = possibleMoves[i + 2];
+            var enPassantPos = GetRelativeBoardPosition(startingPos, enPassantMove.xOffset, enPassantMove.yOffset);
+            if (enPassantPos != null && enPassantPos.occupantPieces.Count > 0)
+            {
+                var enPassantPiece = enPassantPos.occupantPieces.First() as ChessPiece;
+                if (IsEnPassantPossible(pawnPiece, enPassantPiece))
+                {
+                    var turnCopy = turn.Clone() as ChessTurn;
+                    turnCopy.pieceCaptured = enPassantPiece;
+                    turnCopy.endPosition = position;
+                    turnCopy.specialFlag = ChessTurn.SpecialFlag.kPawnEnPassant;
+                    turnCopy.enPassantPosition = enPassantPos;
+                    validTurns.Add(turnCopy);
+                }
+            }
+        }
+
+        return validTurns;
+    }
+
+    private bool IsEnPassantPossible(ChessPiece pieceToMove, ChessPiece pieceToCapture)
+    {
+        if (pieceToCapture.ownerPlayer.team == pieceToMove.ownerPlayer.team)
+            return false;
+
+        if (pieceToCapture.Type != ChessPiece.PieceType.Pawn)
+            return false;
+
+        int pieceLastMoveIdx = -1, enemyPieceFirstMoveIdx = -1;
+        for (int i = 0; i < TurnHistory.Count; ++i)
+        {
+            var turn = TurnHistory[i] as ChessTurn;
+            if (turn.pieceMoved == pieceToMove)
+                pieceLastMoveIdx = i;
+            else if (turn.pieceMoved == pieceToCapture)
+            {
+                if (enemyPieceFirstMoveIdx >= 0)
+                    return false; // Enemy pawn has moved more than once.
+                else if (turn.specialFlag != ChessTurn.SpecialFlag.kPawnDoubleMove)
+                    return false; // Enemy pawn's first move was not double move.
+                else
+                    enemyPieceFirstMoveIdx = i;
+            }
+        }
+        if (pieceLastMoveIdx >= 0 && enemyPieceFirstMoveIdx >= 0 && pieceLastMoveIdx < enemyPieceFirstMoveIdx)
+            return true;
+        else
+            return false;
+    }
+
+    private bool IsPlayerInCheck(ChessPlayer player)
+    {
+        foreach (var pos in mChessPositions)
+        {
+            if (pos.occupantPieces.Count == 0)
+                continue;
+            ChessPiece enemyPiece = pos.occupantPieces.First() as ChessPiece;
+            if (enemyPiece.ownerPlayer.team == player.team)
+                continue;
+            ChessTurn dummyTurn = new ChessTurn(enemyPiece.ownerPlayer as ChessPlayer);
+            dummyTurn.pieceMoved = enemyPiece;
+            dummyTurn.startPosition = pos;
+            var enemyMoves = enemyPiece.CalculateValidMoves(dummyTurn, false);
+
+            foreach(var enemyTurn in enemyMoves)
+            {
+                var pieceCaptured = enemyTurn.pieceCaptured;
+                if (pieceCaptured != null
+                    && pieceCaptured.Type == ChessPiece.PieceType.King
+                    && pieceCaptured.ownerPlayer == player)
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private bool IsPlayerInCheckAfterHypotheticalTurn(ChessPlayer player, ChessTurn turn)
+    {
+        bool isInCheck = false;
+        using (var hypotheticalTurn = new HypotheticalTurn(turn))
+        {
+            isInCheck = IsPlayerInCheck(player);
+        }
+        return isInCheck;
+    }
 }
+

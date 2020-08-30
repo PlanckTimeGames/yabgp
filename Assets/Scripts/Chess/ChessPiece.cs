@@ -1,9 +1,7 @@
-﻿using System.Collections;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using UnityEngine;
 using Interfaces;
 using PathCreation;
-using System.Threading.Tasks;
 
 public struct ChessMoveInfo
 {
@@ -20,9 +18,7 @@ public struct ChessMoveInfo
 }
 public interface IChessBoardInfo
 {
-    ChessBoardPosition GetRelativeBoardPosition(ChessBoardPosition startingPos, int xOffset, int yOffset);
-
-    List<ChessBoardPosition> GetValidMoves(ChessPiece piece, ChessBoardPosition startingPos, List<ChessMoveInfo> possibleMoves);
+    List<ChessTurn> GetValidMoves(ChessTurn turn, List<ChessMoveInfo> possibleMoves, bool considerChecks);
 }
 
 public abstract class ChessPiece : Piece
@@ -66,6 +62,8 @@ public abstract class ChessPiece : Piece
         renderer.enabled = false;
     }
 
+    public virtual PieceType Type { get; }
+
     void Update()
     {
         if (mIsMoving)
@@ -87,12 +85,10 @@ public abstract class ChessPiece : Piece
 
     public IChessBoardInfo boardInfo { get; private set; }
 
-    public virtual List<ChessBoardPosition> CalculateValidMoves()
+    public virtual List<ChessTurn> CalculateValidMoves(ChessTurn turn, bool considerChecks)
     {
-        return new List<ChessBoardPosition>();
+        return new List<ChessTurn>();
     }
-
-    public List<ChessBoardPosition> validPositions { get; protected set; }
 
     public void MovePiece(ChessBoardPosition newPos, VertexPath animationPath, MoveCompletionCallback moveCompletionCallback)
     {

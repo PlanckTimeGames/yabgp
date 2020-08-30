@@ -5,8 +5,8 @@ using UnityEngine;
 
 public class KnightPiece : ChessPiece
 {
-
-    public override List<ChessBoardPosition> CalculateValidMoves()
+    public override PieceType Type { get { return PieceType.Knight; } }
+    public override List<ChessTurn> CalculateValidMoves(ChessTurn turn, bool considerChecks)
     {
         var curPos = GetPosition() as ChessBoardPosition;
         ChessMoveInfo[] possibleMoves = new ChessMoveInfo[]
@@ -17,6 +17,6 @@ public class KnightPiece : ChessPiece
                                             new ChessMoveInfo(-1,-2, false), new ChessMoveInfo(1,-2, false)
         };
 
-        return (validPositions = boardInfo.GetValidMoves(this, curPos, possibleMoves.ToList()));
+        return boardInfo.GetValidMoves(turn, possibleMoves.ToList(), considerChecks);
     }
 }
