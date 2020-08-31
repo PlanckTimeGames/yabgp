@@ -13,19 +13,22 @@ public class PawnPiece : ChessPiece
     }
 
     public override PieceType Type { get { return PieceType.Pawn; } }
-    public override List<ChessTurn> CalculateValidMoves(ChessTurn turn, bool considerChecks)
+    public override List<ChessTurn> CalculateLegalTurns(ChessTurn turn, bool considerChecks, bool onlyCapturingMoves)
     {
         var curPos = GetPosition() as ChessBoardPosition;
-        List<ChessMoveInfo> possibleMoves = new List<ChessMoveInfo>()
+        if (mPossibleMoves == null)
         {
-            // 2 kinds of forward moves.
-            mForwardMove, new ChessMoveInfo(2 * mForwardMove.xOffset, 2 * mForwardMove.yOffset, false)
-        };
+            mPossibleMoves = new List<ChessMoveInfo>
+            {
+                // 2 kinds of forward moves.
+                mForwardMove, new ChessMoveInfo(2 * mForwardMove.xOffset, 2 * mForwardMove.yOffset, false)
+            };
 
-        possibleMoves.AddRange(CalcTakingMoves());
-        possibleMoves.AddRange(CalcEnPassantMoves());
+            mPossibleMoves.AddRange(CalcTakingMoves());
+            mPossibleMoves.AddRange(CalcEnPassantMoves());
+        }
 
-        return boardInfo.GetValidMoves(turn, possibleMoves, considerChecks);
+        return boardInfo.CalculateLegalTurnsFromRelativeMoves(turn, mPossibleMoves, considerChecks, onlyCapturingMoves);
     }
 
     private ChessMoveInfo[] CalcTakingMoves()

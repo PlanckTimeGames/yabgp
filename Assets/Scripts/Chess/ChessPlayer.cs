@@ -9,7 +9,7 @@ using System.Linq;
 public delegate void MoveCompletionCallback();
 public interface IChessBoardCommands
 {
-    ChessPiece MovePiece(ChessPiece pieceToMove, ChessBoardPosition toPosition, MoveCompletionCallback callback);
+    void PlayTurn(ChessTurn turnToPlay, MoveCompletionCallback callback);
     void DeselectAllPositions();
 }
 
@@ -22,6 +22,7 @@ public class ChessPlayer : IPlayer
     }
 
     protected ChessTurn mTurn;
+    protected Dictionary<ChessPiece, List<ChessTurn>> mLegalTurns;
     protected IChessBoardCommands mChessBoardCommands;
     private EndTurnCallback mEndTurnCallback;
 
@@ -75,21 +76,47 @@ public class ChessPlayer : IPlayer
     {
         mTurn = turn as ChessTurn;
         mEndTurnCallback = endTurnCallback;
+        CalculateAllLegalTurns();
     }
 
     protected virtual void EndTurn()
     {
+        mLegalTurns.Clear();
         mEndTurnCallback(mTurn);
         mEndTurnCallback = null;
         mTurn = null;
     }
 
+    public int GetNumLegalTurns()
+    {
+        CalculateAllLegalTurns();
+        int numLegalTurns = 0;
+        foreach (var legalTurns in mLegalTurns.Values)
+        {
+            numLegalTurns += legalTurns.Count;
+        }
+        return numLegalTurns;
+    }
+    private void CalculateAllLegalTurns()
+    {
+        if (mLegalTurns == null)
+            mLegalTurns = new Dictionary<ChessPiece, List<ChessTurn>>();
+        else if (mLegalTurns.Count > 0)
+            return; // Turns already calculated.
+
+        var turn = new ChessTurn(this);
+        foreach (ChessPiece piece in ownedPieces)
+        {
+            turn.pieceMoved = piece;
+            turn.startPosition = piece.GetPosition() as ChessBoardPosition;
+            mLegalTurns[piece] = piece.CalculateLegalTurns(turn, true, false);
+        }
+    }
 }
 
 public class HumanChessPlayer : ChessPlayer 
 {
     private ICameraController mCameraController;
-    private List<ChessTurn> mValidMoves;
     public HumanChessPlayer(PlayerColor playerColor_, ChessTeam team_, IChessBoardCommands chessBoardCommands, ICameraController cameraController)
         : base(playerColor_, team_, chessBoardCommands)
     {
@@ -145,22 +172,32 @@ public class HumanChessPlayer : ChessPlayer
                 position.Select();
                 mTurn.startPosition = position;
                 mTurn.pieceMoved = piece;
-                mValidMoves = piece.CalculateValidMoves(mTurn, true);
 
-                foreach (var move in mValidMoves)
+                var legalTurnsForPiece = mLegalTurns[piece];
+
+                foreach (var turn in legalTurnsForPiece)
                 {
-                    move.endPosition.Select();
+                    turn.endPosition.Select();
                 }
                 handled = true;
             }
         }
 
-        if (!handled && mValidMoves != null)
+        if (!handled && mTurn.pieceMoved != null)
         {
             mChessBoardCommands.DeselectAllPositions();
-            var validMove = FindInValidMoves(position);
-            if (validMove != null)
+
+            // Check if user made a move or cancelled it.
+            var validMove = FindInLegalTurns(position);
+            if (validMove == null)
             {
+                // User clicked on a non-highlighted position, i.e. cancelled the move. Clear the selected piece info.
+                mTurn.pieceMoved = null;
+                mTurn.startPosition = null;
+            }
+            else
+            {
+                // User did a valid move. Proceed with moving the piece and cleanup.
                 mTurn = validMove;
                 
                 // ---- START CLEANUP ----
@@ -172,24 +209,25 @@ public class HumanChessPlayer : ChessPlayer
                     var piecePosition = piece.GetPosition() as ChessBoardPosition;
                     piecePosition.userSelectionEnabled = false;
                 }
-                // In addition, disable selection from move's fromPosition as well.
-                mTurn.startPosition.userSelectionEnabled = false;
-                // Clear turn-related variables.
-                mValidMoves = null;
                 // ---- END CLEANUP ----
 
                 // Actually move the piece.
-                mTurn.pieceCaptured = mChessBoardCommands.MovePiece(mTurn.pieceMoved, position, EndTurn);
+                mChessBoardCommands.PlayTurn(mTurn, EndTurn);
             }
         }
     }
 
-    private ChessTurn FindInValidMoves(ChessBoardPosition position)
+    private ChessTurn FindInLegalTurns(ChessBoardPosition position)
     {
-        foreach (var move in mValidMoves)
+        var selectedPiece = mTurn.pieceMoved;
+        if (selectedPiece == null)
+            return null;
+
+        var legalTurnsForPiece = mLegalTurns[selectedPiece];
+        foreach (var turn in legalTurnsForPiece)
         {
-            if (move.endPosition == position)
-                return move;
+            if (turn.endPosition == position)
+                return turn;
         }
         return null;
     }

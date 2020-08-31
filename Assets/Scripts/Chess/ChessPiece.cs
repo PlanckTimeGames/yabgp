@@ -18,7 +18,7 @@ public struct ChessMoveInfo
 }
 public interface IChessBoardInfo
 {
-    List<ChessTurn> GetValidMoves(ChessTurn turn, List<ChessMoveInfo> possibleMoves, bool considerChecks);
+    List<ChessTurn> CalculateLegalTurnsFromRelativeMoves(ChessTurn turn, List<ChessMoveInfo> possibleMoves, bool considerChecks, bool onlyCapturingMoves);
 }
 
 public abstract class ChessPiece : Piece
@@ -32,6 +32,8 @@ public abstract class ChessPiece : Piece
         Knight,
         Pawn
     }
+
+    protected List<ChessMoveInfo> mPossibleMoves;
 
     private bool mIsMoving;
     private VertexPath mAnimationPath;
@@ -85,7 +87,7 @@ public abstract class ChessPiece : Piece
 
     public IChessBoardInfo boardInfo { get; private set; }
 
-    public virtual List<ChessTurn> CalculateValidMoves(ChessTurn turn, bool considerChecks)
+    public virtual List<ChessTurn> CalculateLegalTurns(ChessTurn turn, bool considerChecks, bool onlyCapturingMoves)
     {
         return new List<ChessTurn>();
     }
